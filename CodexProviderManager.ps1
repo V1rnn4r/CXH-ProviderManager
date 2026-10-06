@@ -32,6 +32,7 @@ function Escape-CxToml {
     return $Text.Replace('\', '\\').Replace('"', '\"')
 }
 
+
 function Expand-CxRegistryValue {
     param(
         $Value
@@ -54,7 +55,6 @@ function Expand-CxRegistryValue {
         ForEach-Object { $_.Name }
     )
 
-    # Provider Record
     if ($propertyNames -contains "profile") {
         Write-Output $Value
         return
@@ -109,6 +109,7 @@ function Get-CxRegistry {
     Expand-CxRegistryValue $parsed
 }
 
+
 function Save-CxRegistry {
     param(
         [object[]]$Items
@@ -128,18 +129,18 @@ function Save-CxRegistry {
             }
 
             $map[$record.profile] = [ordered]@{
-                name        = $record.name
-                profile     = $record.profile
-                provider    = $record.provider
-                base_url    = $record.base_url
-                env_key     = $record.env_key
-                model       = $record.model
-                reasoning   = $record.reasoning
+                name         = $record.name
+                profile      = $record.profile
+                provider     = $record.provider
+                base_url     = $record.base_url
+                env_key      = $record.env_key
+                model        = $record.model
+                reasoning    = $record.reasoning
                 service_tier = $record.service_tier
-                auth        = $record.auth
-                launch      = $record.launch
-                resume_last = $record.resume_last
-                history     = $record.history
+                auth         = $record.auth
+                launch       = $record.launch
+                resume_last  = $record.resume_last
+                history      = $record.history
             }
         }
     }
@@ -247,17 +248,17 @@ function Get-CxProfileInfo {
     )
 
     return [pscustomobject]@{
-        profile      = $Profile
-        provider     = $providerMatch.Groups[1].Value
+        profile  = $Profile
+        provider = $providerMatch.Groups[1].Value
 
-        model        = if ($modelMatch.Success) {
+        model = if ($modelMatch.Success) {
             $modelMatch.Groups[1].Value
         }
         else {
             ""
         }
 
-        reasoning    = if ($reasoningMatch.Success) {
+        reasoning = if ($reasoningMatch.Success) {
             $reasoningMatch.Groups[1].Value
         }
         else {
@@ -395,14 +396,12 @@ function Set-CxApiKeyValue {
         [string]$Value
     )
 
-    # 永久保存到 Windows 用户环境变量
     [Environment]::SetEnvironmentVariable(
         $EnvName,
         $Value,
         "User"
     )
 
-    # 当前 PowerShell 立即可用
     Set-Item `
         -Path "Env:$EnvName" `
         -Value $Value
@@ -411,9 +410,6 @@ function Set-CxApiKeyValue {
 
 # ============================================================
 # 将 Windows 用户环境变量同步到当前 PowerShell
-#
-# 这样即使 VS Code 是设置 Key 之前启动的，
-# cx lumon-other 也能自动拿到新的 API Key。
 # ============================================================
 
 function Sync-CxApiKeyToProcess {
@@ -470,12 +466,6 @@ cxsetkey $($record.profile)
 
 # ============================================================
 # cxadd
-#
-# 新增一个 API Provider
-#
-# 示例：
-#
-# cxadd lumon-other https://www.lumoncode.com/v1 gpt-6-astra
 # ============================================================
 
 function cxadd {
@@ -605,7 +595,6 @@ cximport $id
         -Value $config `
         -Encoding UTF8
 
-    # 创建 Profile
     $profilePath = Join-Path `
         $script:CxHome `
         "$id.config.toml"
@@ -625,7 +614,6 @@ sandbox_mode = "danger-full-access"
         -Value $profile `
         -Encoding UTF8
 
-    # Registry
     $items = @(
         Get-CxRegistry |
         Where-Object {
@@ -688,8 +676,6 @@ sandbox_mode = "danger-full-access"
 
 # ============================================================
 # cximport
-#
-# 把已经存在的 *.config.toml Profile 登记到管理器
 # ============================================================
 
 function cximport {
@@ -749,11 +735,6 @@ function cximport {
 
 # ============================================================
 # cxsetkey
-#
-# 给已有 API 设置 / 更换 API Key
-#
-# 示例：
-# cxsetkey lumon-other
 # ============================================================
 
 function cxsetkey {
@@ -804,10 +785,84 @@ function cxsetkey {
 
 
 # ============================================================
+# Windows daemon compatibility
+#
+# Codex CLI 0.157+：
+# Windows 管理员终端不能启动 shared daemon，
+# 因此管理员终端自动添加 --no-daemon。
+#
+# 同时兼容 Codex CLI 0.158.0：
+# 移除 PowerShell 数组中的 null / 空字符串参数，
+# 防止 resume 把空参数误认为 Session ID。
+# ============================================================
+
+function Test-CxWindowsElevated {
+    if ($env:OS -ne "Windows_NT") {
+        return $false
+    }
+
+    try {
+        $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+
+        $principal = [Security.Principal.WindowsPrincipal]::new(
+            $identity
+        )
+
+        return $principal.IsInRole(
+            [Security.Principal.WindowsBuiltInRole]::Administrator
+        )
+    }
+    catch {
+        return $false
+    }
+}
+
+
+function Add-CxDaemonCompatibility {
+    param(
+        [string[]]$Arguments
+    )
+
+    # 关键修复：
+    # @($null) 会产生一个包含空值的数组。
+    # Codex 0.158.0 的 resume 可能把空参数解释为 Session ID。
+    $argsList = @(
+        $Arguments | Where-Object {
+            $null -ne $_ -and
+            -not [string]::IsNullOrWhiteSpace([string]$_)
+        }
+    )
+
+    if (!(Test-CxWindowsElevated)) {
+        return $argsList
+    }
+
+    if ($argsList -contains "--no-daemon") {
+        return $argsList
+    }
+
+    # 这些模式需要 shared server，不能使用 --no-daemon。
+    if (
+        $argsList -contains "--remote" -or
+        $argsList -contains "agents"
+    ) {
+        return $argsList
+    }
+
+    Write-Host `
+        "检测到管理员权限终端：已自动使用 --no-daemon。" `
+        -ForegroundColor DarkYellow
+
+    return @("--no-daemon") + $argsList
+}
+
+
+# ============================================================
 # cx
 #
 # 新建对话
 #
+# cx
 # cx official
 # cx lumon
 # cx lumon-other
@@ -822,11 +877,13 @@ function cx {
         [string[]]$Rest
     )
 
+    $codexArgs = Add-CxDaemonCompatibility -Arguments $Rest
+
     if (
         $Name -eq "official" -or
         $Name -eq "openai"
     ) {
-        & codex @Rest
+        & codex @codexArgs
         return
     }
 
@@ -834,7 +891,7 @@ function cx {
 
     Sync-CxApiKeyToProcess $profile
 
-    & codex -p $profile @Rest
+    & codex -p $profile @codexArgs
 }
 
 
@@ -842,19 +899,32 @@ function cx {
 # cxr
 #
 # 恢复最近一次对话
+#
+# cxr
+# cxr lumon-other
 # ============================================================
 
 function cxr {
     param(
         [Parameter(Position=0)]
-        [string]$Name = "official"
+        [string]$Name = "official",
+
+        [Parameter(ValueFromRemainingArguments=$true)]
+        [string[]]$Rest
     )
+
+    $sessionArgs = @(
+        "resume"
+        "--last"
+    ) + @($Rest)
+
+    $codexArgs = Add-CxDaemonCompatibility -Arguments $sessionArgs
 
     if (
         $Name -eq "official" -or
         $Name -eq "openai"
     ) {
-        & codex resume --last
+        & codex @codexArgs
         return
     }
 
@@ -862,10 +932,7 @@ function cxr {
 
     Sync-CxApiKeyToProcess $profile
 
-    & codex `
-        -p $profile `
-        resume `
-        --last
+    & codex -p $profile @codexArgs
 }
 
 
@@ -873,19 +940,32 @@ function cxr {
 # cxh
 #
 # 查看 / 选择历史对话
+#
+# cxh
+# cxh lumon-other
 # ============================================================
 
 function cxh {
     param(
         [Parameter(Position=0)]
-        [string]$Name = "official"
+        [string]$Name = "official",
+
+        [Parameter(ValueFromRemainingArguments=$true)]
+        [string[]]$Rest
     )
+
+    $sessionArgs = @(
+        "resume"
+        "--all"
+    ) + @($Rest)
+
+    $codexArgs = Add-CxDaemonCompatibility -Arguments $sessionArgs
 
     if (
         $Name -eq "official" -or
         $Name -eq "openai"
     ) {
-        & codex resume --all
+        & codex @codexArgs
         return
     }
 
@@ -893,10 +973,7 @@ function cxh {
 
     Sync-CxApiKeyToProcess $profile
 
-    & codex `
-        -p $profile `
-        resume `
-        --all
+    & codex -p $profile @codexArgs
 }
 
 
@@ -1017,7 +1094,7 @@ function cxlist {
 # ============================================================
 # cxtest
 #
-# 测试 API 的 /v1/models
+# 测试 API 的 /models
 # ============================================================
 
 function cxtest {
