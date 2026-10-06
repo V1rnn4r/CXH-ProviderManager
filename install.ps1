@@ -1,3 +1,8 @@
+﻿param(
+    [string]$ManagerInstallDir,
+    [string]$CodexHome
+)
+
 # ============================================================
 # CXH Provider Manager Installer
 # ============================================================
@@ -28,22 +33,103 @@ else {
 }
 
 # ============================================================
-# 路径
+# 解析 Codex Home
+# ============================================================
+
+$CodexHomeWasExplicit = $PSBoundParameters.ContainsKey("CodexHome")
+
+if ([string]::IsNullOrWhiteSpace($CodexHome)) {
+    if (-not [string]::IsNullOrWhiteSpace($env:CODEX_HOME)) {
+        $CodexHome = $env:CODEX_HOME
+    }
+    else {
+        $SavedCodexHome = [Environment]::GetEnvironmentVariable(
+            "CODEX_HOME",
+            [EnvironmentVariableTarget]::User
+        )
+
+        if (-not [string]::IsNullOrWhiteSpace($SavedCodexHome)) {
+            $CodexHome = $SavedCodexHome
+        }
+        else {
+            $CodexHome = Join-Path $env:USERPROFILE ".codex"
+        }
+    }
+}
+
+$CodexHome = [System.IO.Path]::GetFullPath(
+    $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath(
+        $CodexHome
+    )
+)
+
+if (!(Test-Path -LiteralPath $CodexHome)) {
+    New-Item -ItemType Directory -Force -Path $CodexHome | Out-Null
+}
+
+# 如果用户显式指定了 CodexHome，则让 Codex CLI 和 CXH 都永久使用同一目录。
+if ($CodexHomeWasExplicit) {
+    [Environment]::SetEnvironmentVariable(
+        "CODEX_HOME",
+        $CodexHome,
+        [EnvironmentVariableTarget]::User
+    )
+
+    $env:CODEX_HOME = $CodexHome
+
+    Write-Host "已设置当前用户 CODEX_HOME：" -ForegroundColor Green
+    Write-Host "  $CodexHome"
+}
+elseif ([string]::IsNullOrWhiteSpace($env:CODEX_HOME)) {
+    # 用户级变量可能已存在，但当前 PowerShell 是旧会话。
+    $SavedCodexHome = [Environment]::GetEnvironmentVariable(
+        "CODEX_HOME",
+        [EnvironmentVariableTarget]::User
+    )
+
+    if (-not [string]::IsNullOrWhiteSpace($SavedCodexHome)) {
+        $env:CODEX_HOME = $SavedCodexHome
+    }
+}
+
+# ============================================================
+# 解析 CXH 管理器安装目录
+# ============================================================
+
+# 默认直接安装到 Codex Home。
+# 如需源码、管理器、Codex 数据三者完全分离，可显式传入 -ManagerInstallDir。
+if ([string]::IsNullOrWhiteSpace($ManagerInstallDir)) {
+    $ManagerInstallDir = $CodexHome
+}
+
+$ManagerInstallDir = [System.IO.Path]::GetFullPath(
+    $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath(
+        $ManagerInstallDir
+    )
+)
+
+if (!(Test-Path -LiteralPath $ManagerInstallDir)) {
+    New-Item -ItemType Directory -Force -Path $ManagerInstallDir | Out-Null
+}
+
+# ============================================================
+# 源文件
 # ============================================================
 
 $SourceDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $SourceManager = Join-Path $SourceDir "CodexProviderManager.ps1"
-
-$CodexHome = Join-Path $env:USERPROFILE ".codex"
-$TargetManager = Join-Path $CodexHome "CodexProviderManager.ps1"
+$TargetManager = Join-Path $ManagerInstallDir "CodexProviderManager.ps1"
 
 if (!(Test-Path -LiteralPath $SourceManager)) {
     throw "找不到 CodexProviderManager.ps1：$SourceManager"
 }
 
-if (!(Test-Path -LiteralPath $CodexHome)) {
-    New-Item -ItemType Directory -Force -Path $CodexHome | Out-Null
-}
+Write-Host ""
+Write-Host "Codex 数据目录：" -ForegroundColor Cyan
+Write-Host "  $CodexHome"
+
+Write-Host "CXH 管理器目录：" -ForegroundColor Cyan
+Write-Host "  $ManagerInstallDir"
 
 # ============================================================
 # 备份旧管理器
@@ -95,10 +181,18 @@ if (!(Test-Path -LiteralPath $ProfilePath)) {
 $BeginMarker = "# >>> CXH-PROVIDER-MANAGER"
 $EndMarker   = "# <<< CXH-PROVIDER-MANAGER"
 
+$EscapedTargetManager = $TargetManager.Replace("'", "''")
+$EscapedCodexHome = $CodexHome.Replace("'", "''")
+
 $LoaderBlock = @"
 $BeginMarker
 # CXH Provider Manager
-`$cxhManager = Join-Path `$env:USERPROFILE ".codex\CodexProviderManager.ps1"
+
+# Keep this PowerShell session aligned with the Codex data directory
+# selected during installation.
+`$env:CODEX_HOME = '$EscapedCodexHome'
+
+`$cxhManager = '$EscapedTargetManager'
 
 if (Test-Path -LiteralPath `$cxhManager) {
     try {
@@ -160,7 +254,15 @@ if ($ProfileChanged) {
         Write-Host "  $ProfileBackup"
     }
 
-    Set-Content -LiteralPath $ProfilePath -Value $NewProfile -Encoding UTF8
+    # Windows PowerShell 5.1 may parse UTF-8-without-BOM files as ANSI.
+    # Always write the profile as UTF-8 with BOM so the same profile works
+    # in both Windows PowerShell 5.1 and PowerShell 7+.
+    $Utf8Bom = New-Object System.Text.UTF8Encoding($true)
+    [System.IO.File]::WriteAllText(
+        $ProfilePath,
+        $NewProfile,
+        $Utf8Bom
+    )
 
     Write-Host ""
     Write-Host "已写入/更新 PowerShell Profile：" -ForegroundColor Green
@@ -176,6 +278,7 @@ else {
 # 当前终端立即加载并检查公开命令
 # ============================================================
 
+$env:CODEX_HOME = $CodexHome
 . $TargetManager
 
 $RequiredCommands = @(
@@ -214,6 +317,12 @@ Write-Host "              CXH 安装完成                  " -ForegroundColor G
 Write-Host "============================================" -ForegroundColor Green
 Write-Host ""
 
+Write-Host "Codex 数据目录：" -ForegroundColor Cyan
+Write-Host "  $CodexHome"
+
+Write-Host "CXH 管理器：" -ForegroundColor Cyan
+Write-Host "  $TargetManager"
+
 Write-Host "PowerShell Profile：" -ForegroundColor Cyan
 Write-Host "  $ProfilePath"
 
@@ -224,13 +333,5 @@ Write-Host "  cx official"
 Write-Host "  cxh official"
 
 Write-Host ""
-Write-Host "新增 Provider：" -ForegroundColor Cyan
-Write-Host "  cxadd lumon https://www.lumoncode.com/v1 gpt-6-astra"
-
-Write-Host ""
-Write-Host "如果要使用 Codex 的 --remote 或 agents 等依赖 shared daemon 的模式，" -ForegroundColor DarkYellow
-Write-Host "请优先在非管理员 PowerShell 中运行。" -ForegroundColor DarkYellow
-
-Write-Host ""
-Write-Host "关闭并重新打开 PowerShell 后，CXH 仍会通过 CurrentUserAllHosts Profile 自动加载。"
+Write-Host "关闭并重新打开 PowerShell 后，CODEX_HOME 与 CXH 都会自动加载。"
 Write-Host ""

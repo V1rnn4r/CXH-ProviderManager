@@ -1,4 +1,32 @@
-﻿$script:CxHome     = Join-Path $env:USERPROFILE ".codex"
+﻿# Resolve Codex home in the same order as Codex CLI:
+# 1) current-process CODEX_HOME
+# 2) persisted current-user CODEX_HOME
+# 3) default %USERPROFILE%\.codex
+$script:CxHome = $null
+
+if (-not [string]::IsNullOrWhiteSpace($env:CODEX_HOME)) {
+    $script:CxHome = $env:CODEX_HOME
+}
+else {
+    $savedCodexHome = [Environment]::GetEnvironmentVariable(
+        "CODEX_HOME",
+        [EnvironmentVariableTarget]::User
+    )
+
+    if (-not [string]::IsNullOrWhiteSpace($savedCodexHome)) {
+        $script:CxHome = $savedCodexHome
+    }
+}
+
+if ([string]::IsNullOrWhiteSpace($script:CxHome)) {
+    $script:CxHome = Join-Path $env:USERPROFILE ".codex"
+}
+
+$script:CxHome = [System.IO.Path]::GetFullPath(
+    $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath(
+        $script:CxHome
+    )
+)
 $script:CxConfig   = Join-Path $script:CxHome "config.toml"
 $script:CxRegistry = Join-Path $script:CxHome "providers.json"
 

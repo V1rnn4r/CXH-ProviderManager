@@ -45,6 +45,8 @@ OpenAI Codex CLI
 Git
 ```
 
+仓库中的 PowerShell 脚本使用 **UTF-8 with BOM** 保存，以兼容 Windows PowerShell 5.1 对含中文脚本的解析。推荐日常使用 PowerShell 7（`pwsh`），但安装器和管理器也尽量保持 Windows PowerShell 5.1 可解析。
+
 检查 PowerShell：
 
 ```powershell
@@ -67,7 +69,108 @@ $PROFILE.CurrentUserAllHosts
 
 ---
 
-## 3. 一键安装
+
+## 3. 安装目录与下载脚本
+
+CXH 现在支持三个目录分别指定，而且都可以位于 C / D / E 等任意本地磁盘：
+
+```text
+1. Git 仓库源码目录
+   例如：
+   E:\project\cxh
+
+2. Codex 数据目录（CODEX_HOME）
+   保存：
+   config.toml
+   *.config.toml
+   providers.json
+   auth.json
+   sessions/
+   以及 Codex 本地状态
+
+3. CXH 管理器脚本目录
+   保存：
+   CodexProviderManager.ps1
+```
+
+例如可以这样组织：
+
+```text
+E:\project\cxh              # GitHub 仓库
+D:\CodexData                 # Codex 数据 / CODEX_HOME
+E:\Tools\CXH                # CXH 管理器脚本
+```
+
+如果不特别指定：
+
+- Codex 数据目录优先使用当前/当前用户已有的 `CODEX_HOME`
+- 如果没有配置 `CODEX_HOME`，才回退到 `%USERPROFILE%\.codex`
+- CXH 管理器默认安装到 Codex 数据目录
+
+### 推荐：下载并交互式选择目录
+
+仓库中提供：
+
+```text
+download-install.ps1
+```
+
+第一次运行时，如果没有传参数，会依次询问：
+
+```text
+1/3 Git 仓库源码目录
+2/3 Codex 数据目录
+3/3 CXH 管理器安装目录
+```
+
+例如：
+
+```powershell
+pwsh -File .\download-install.ps1
+```
+
+也可以完全不询问，直接指定：
+
+```powershell
+pwsh -File .\download-install.ps1 `
+  -SourceDir "E:\project\cxh" `
+  -CodexHome "D:\CodexData" `
+  -ManagerInstallDir "E:\Tools\CXH"
+```
+
+如果仓库已经存在，下载脚本会执行：
+
+```text
+git pull --ff-only
+```
+
+如果不存在，则执行：
+
+```text
+git clone
+```
+
+### 从 GitHub 直接下载安装脚本
+
+上传本版本到 GitHub 后，新电脑可以直接执行：
+
+```powershell
+$script="$env:TEMP\cxh-download-install.ps1"; Invoke-WebRequest "https://raw.githubusercontent.com/V1rnn4r/CXH-ProviderManager/main/download-install.ps1" -OutFile $script; pwsh -File $script
+```
+
+这样不需要先手工 `git clone`。脚本会自己询问三个目录，并完成下载与安装。
+
+如果新电脑已经有 Codex 数据目录，例如：
+
+```text
+D:\CodexData
+```
+
+在第 2 步直接填写这个现有目录即可。安装器不会迁移、删除或重建已有 Session，只会让 Codex CLI 与 CXH 使用同一个 `CODEX_HOME`。
+
+---
+
+## 4. 一键安装
 
 克隆仓库：
 
@@ -76,21 +179,37 @@ git clone https://github.com/V1rnn4r/CXH-ProviderManager.git
 cd CXH-ProviderManager
 ```
 
-运行安装器：
+最简单安装：
 
 ```powershell
 pwsh -File .\install.ps1
 ```
 
-安装器会：
+如果电脑已经配置 `CODEX_HOME`，安装器会优先使用它；如果没有，才使用：
 
-1. 备份已有的 `~/.codex/CodexProviderManager.ps1`
-2. 将仓库版本复制到 `~/.codex/`
-3. 用 SHA256 校验复制结果
-4. 备份并更新 `$PROFILE.CurrentUserAllHosts`
-5. 写入受标记保护的 CXH 自动加载区块
-6. 在当前终端立即加载 CXH
-7. 检查公开命令是否都已成功加载
+```text
+%USERPROFILE%\.codex
+```
+
+同时指定 Codex 数据目录与 CXH 管理器目录：
+
+```powershell
+pwsh -File .\install.ps1 `
+  -CodexHome "D:\CodexData" `
+  -ManagerInstallDir "E:\Tools\CXH"
+```
+
+当显式传入 `-CodexHome` 时，安装器会：
+
+1. 将 `CODEX_HOME` 写入 Windows 当前用户环境变量
+2. 同步到当前 PowerShell 会话
+3. 在 PowerShell Profile 中写入相同目录
+4. 让 CXH 从这个目录读取 Provider 配置、Registry 和 Session
+5. 备份已有的 `CodexProviderManager.ps1`
+6. 复制并执行 SHA256 校验
+7. 检查全部公开命令是否加载成功
+
+PowerShell Profile 会记录实际的管理器路径，所以 `CodexProviderManager.ps1` 不要求放在 C 盘。
 
 安装后重新打开 PowerShell，应看到：
 
@@ -100,7 +219,7 @@ Codex Provider Manager 已加载。
 
 ---
 
-## 4. 核心命令
+## 5. 核心命令
 
 | 命令 | 作用 |
 |---|---|
@@ -118,7 +237,7 @@ Codex Provider Manager 已加载。
 
 ---
 
-## 5. 启动与恢复会话
+## 6. 启动与恢复会话
 
 ### OpenAI 官方
 
@@ -187,7 +306,7 @@ codex resume --all
 
 ---
 
-## 6. Windows 管理员终端兼容
+## 7. Windows 管理员终端兼容
 
 当前管理器包含 Windows 管理员终端兼容逻辑。
 
@@ -219,7 +338,7 @@ CXH **不会**自动加入 `--no-daemon`，因为这些模式依赖 shared serve
 
 ---
 
-## 7. 新增 Provider
+## 8. 新增 Provider
 
 格式：
 
@@ -271,7 +390,7 @@ CODEX_LUMON_OTHER_API_KEY
 
 ---
 
-## 8. 重要：新建 Profile 的权限策略
+## 9. 重要：新建 Profile 的权限策略
 
 当前 `cxadd` 自动创建的 Profile 中包含：
 
@@ -297,7 +416,7 @@ sandbox_mode = "danger-full-access"
 
 ---
 
-## 9. API Key 存储
+## 10. API Key 存储
 
 CXH 不把自定义 Provider 的 API Key 明文写进：
 
@@ -319,7 +438,7 @@ cxsetkey lumon-other
 
 ---
 
-## 10. 导入已有 Profile
+## 11. 导入已有 Profile
 
 如果 `~/.codex/` 中已经存在：
 
@@ -362,7 +481,7 @@ cxlist
 
 ---
 
-## 11. 登录状态
+## 12. 登录状态
 
 官方账号：
 
@@ -394,7 +513,7 @@ CXH 会显示：
 
 ---
 
-## 12. 查看 Provider
+## 13. 查看 Provider
 
 ```powershell
 cxlist
@@ -412,7 +531,7 @@ lumon-other   lumon-other   lumon-other    gpt-6-astra    cx lumon-other    cxr 
 
 ---
 
-## 13. 测试 Provider
+## 14. 测试 Provider
 
 ```powershell
 cxtest lumon-other
@@ -436,7 +555,7 @@ CXH 会请求：
 
 ---
 
-## 14. Registry 修复
+## 15. Registry 修复
 
 CXH Registry：
 
@@ -466,7 +585,7 @@ cxrepair
 
 ---
 
-## 15. 跨 Provider 项目共享
+## 16. 跨 Provider 项目共享
 
 在项目目录执行：
 
@@ -498,20 +617,37 @@ cxinit
 
 ---
 
-## 16. 配置位置
+## 17. 配置位置
 
-默认目录：
+Codex 数据目录由 `CODEX_HOME` 决定。
+
+CXH 的查找顺序：
 
 ```text
-C:\Users\<username>\.codex
+当前 PowerShell 的 CODEX_HOME
+        ↓
+Windows 当前用户保存的 CODEX_HOME
+        ↓
+%USERPROFILE%\.codex
 ```
 
-典型结构：
+查看当前会话：
+
+```powershell
+$env:CODEX_HOME
+```
+
+查看当前用户持久化值：
+
+```powershell
+[Environment]::GetEnvironmentVariable("CODEX_HOME","User")
+```
+
+典型 Codex 数据目录结构：
 
 ```text
-.codex/
+D:\CodexData\
 ├─ config.toml
-├─ CodexProviderManager.ps1
 ├─ providers.json
 ├─ lumon.config.toml
 ├─ lumon-other.config.toml
@@ -520,11 +656,13 @@ C:\Users\<username>\.codex
 └─ ...
 ```
 
+`CodexProviderManager.ps1` 可以和这些数据放在一起，也可以单独放在其他目录。
+
 CXH 仓库本身只应该保存管理器源码、安装器和文档。
 
 ---
 
-## 17. 更新 CXH
+## 18. 更新 CXH
 
 在仓库目录：
 
@@ -533,23 +671,31 @@ git pull
 pwsh -File .\install.ps1
 ```
 
-安装器会先备份当前 `~/.codex/CodexProviderManager.ps1`，再复制仓库中的新版本。
+如果使用自定义目录：
 
-所以推荐流程是：
+```powershell
+pwsh -File .\install.ps1 `
+  -CodexHome "D:\CodexData" `
+  -ManagerInstallDir "E:\Tools\CXH"
+```
+
+安装器会先备份目标位置现有的 `CodexProviderManager.ps1`，再复制仓库中的新版本并做 SHA256 校验。
+
+推荐流程：
 
 ```text
 GitHub 仓库
     ↓ git pull
 本地 CXH 源码
     ↓ install.ps1
-~/.codex/CodexProviderManager.ps1
+指定的 CXH 管理器目录
 ```
 
-开发新版时则可以反过来把已经验证工作的管理器同步回仓库后再提交。
+Codex 的配置与 Session 则继续保留在指定的 `CODEX_HOME`。
 
 ---
 
-## 18. 在另一台电脑安装
+## 19. 在另一台电脑安装
 
 新电脑准备：
 
@@ -559,35 +705,53 @@ PowerShell 7
 OpenAI Codex CLI
 ```
 
-然后：
+### 推荐方法：直接运行下载脚本
+
+```powershell
+$script="$env:TEMP\cxh-download-install.ps1"; Invoke-WebRequest "https://raw.githubusercontent.com/V1rnn4r/CXH-ProviderManager/main/download-install.ps1" -OutFile $script; pwsh -File $script
+```
+
+随后按提示选择：
+
+```text
+1/3 Git 仓库源码目录
+2/3 Codex 数据目录
+3/3 CXH 管理器安装目录
+```
+
+如果新电脑现有 Codex 数据已经在：
+
+```text
+D:\CodexData
+```
+
+那么第 2 步直接填写：
+
+```text
+D:\CodexData
+```
+
+即可继续使用已有配置和 Session。
+
+也可以手工克隆后安装：
 
 ```powershell
 git clone https://github.com/V1rnn4r/CXH-ProviderManager.git
 cd CXH-ProviderManager
-pwsh -File .\install.ps1
+pwsh -File .\install.ps1 -CodexHome "D:\CodexData" -ManagerInstallDir "E:\Tools\CXH"
 ```
 
-Provider 的 Profile 配置可以通过仓库/手工迁移，但：
+需要注意：
 
 - API Key 不应提交到 Git
 - Windows 用户环境变量不会自动随 Git 同步
-- 官方 `auth.json` 也不应提交
-
-因此在新电脑上通常还需要：
-
-```powershell
-cxsetkey <profile>
-```
-
-以及官方账号：
-
-```powershell
-cxlogin official
-```
+- 官方 `auth.json` 不应提交
+- 如果新电脑已有 API Key 环境变量和 `auth.json`，可直接沿用
+- 如果没有，则重新执行 `cxsetkey <profile>` / `cxlogin official`
 
 ---
 
-## 19. 安全说明
+## 20. 安全说明
 
 不要提交到 Git：
 
@@ -613,7 +777,7 @@ git diff --cached
 
 ---
 
-## 20. 常见问题
+## 21. 常见问题
 
 ### `cx` 无法识别
 
@@ -700,7 +864,7 @@ cxlist
 
 ---
 
-## 21. Roadmap
+## 22. Roadmap
 
 已完成：
 
