@@ -891,6 +891,26 @@ cxlist
 
 ---
 
+## PowerShell 使用建议
+
+CXH 现在默认以 **PowerShell 7 (`pwsh`)** 作为安装与日常使用环境。
+
+- Windows 自带的 **Windows PowerShell 5.1** 是系统兼容组件，不建议强行卸载。
+- 如果误用 Windows PowerShell 5.1 运行安装脚本，脚本会自动切换到已安装的 PowerShell 7。
+- 安装器只会配置 PowerShell 7 当前用户 Profile，不会主动给 Windows PowerShell 5.1 添加新的 CXH Loader。
+- CXH 启动成功后默认静默加载，不再显示 `Codex Provider Manager 已加载。`。
+- 安装器每次运行都会先清理旧版和重复的 CXH Loader，再只保留一个受管理 Loader。
+
+如果你使用 Windows Terminal，建议在：
+
+```text
+设置 → 启动 → 默认配置文件
+```
+
+选择 **PowerShell（pwsh / PowerShell 7）**，避免日常误打开旧的 Windows PowerShell 5.1。
+
+---
+
 ## License
 
 MIT License

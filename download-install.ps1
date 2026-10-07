@@ -5,6 +5,48 @@
     [string]$RepoUrl = "https://github.com/V1rnn4r/CXH-ProviderManager.git"
 )
 
+
+
+# CXH_PWSH7_RELAUNCH
+# Use PowerShell 7 for installation. Windows PowerShell 5.1 remains
+# a Windows compatibility component, but CXH will not configure it.
+if ($PSVersionTable.PSEdition -ne 'Core' -or $PSVersionTable.PSVersion.Major -lt 7) {
+    $pwsh = Get-Command pwsh -ErrorAction SilentlyContinue
+
+    if (!$pwsh) {
+        throw "CXH 安装需要 PowerShell 7+。请先安装 PowerShell 7，然后使用 pwsh 运行本脚本。"
+    }
+
+    $relaunchArgs = @(
+        "-NoLogo",
+        "-NoProfile",
+        "-File",
+        $MyInvocation.MyCommand.Path
+    )
+
+    if ($PSBoundParameters.ContainsKey("SourceDir")) {
+        $relaunchArgs += "-SourceDir"
+        $relaunchArgs += [string]$SourceDir
+    }
+
+    if ($PSBoundParameters.ContainsKey("ManagerInstallDir")) {
+        $relaunchArgs += "-ManagerInstallDir"
+        $relaunchArgs += [string]$ManagerInstallDir
+    }
+
+    if ($PSBoundParameters.ContainsKey("CodexHome")) {
+        $relaunchArgs += "-CodexHome"
+        $relaunchArgs += [string]$CodexHome
+    }
+
+    if ($PSBoundParameters.ContainsKey("RepoUrl")) {
+        $relaunchArgs += "-RepoUrl"
+        $relaunchArgs += [string]$RepoUrl
+    }
+
+    & $pwsh.Source @relaunchArgs
+    exit $LASTEXITCODE
+}
 # ============================================================
 # CXH Downloader + Installer
 # ============================================================

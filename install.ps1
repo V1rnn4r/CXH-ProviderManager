@@ -3,6 +3,38 @@
     [string]$CodexHome
 )
 
+
+
+# CXH_PWSH7_RELAUNCH
+# Use PowerShell 7 for installation. Windows PowerShell 5.1 remains
+# a Windows compatibility component, but CXH will not configure it.
+if ($PSVersionTable.PSEdition -ne 'Core' -or $PSVersionTable.PSVersion.Major -lt 7) {
+    $pwsh = Get-Command pwsh -ErrorAction SilentlyContinue
+
+    if (!$pwsh) {
+        throw "CXH 安装需要 PowerShell 7+。请先安装 PowerShell 7，然后使用 pwsh 运行本脚本。"
+    }
+
+    $relaunchArgs = @(
+        "-NoLogo",
+        "-NoProfile",
+        "-File",
+        $MyInvocation.MyCommand.Path
+    )
+
+    if ($PSBoundParameters.ContainsKey("ManagerInstallDir")) {
+        $relaunchArgs += "-ManagerInstallDir"
+        $relaunchArgs += [string]$ManagerInstallDir
+    }
+
+    if ($PSBoundParameters.ContainsKey("CodexHome")) {
+        $relaunchArgs += "-CodexHome"
+        $relaunchArgs += [string]$CodexHome
+    }
+
+    & $pwsh.Source @relaunchArgs
+    exit $LASTEXITCODE
+}
 # ============================================================
 # CXH Provider Manager Installer
 # ============================================================
@@ -218,31 +250,36 @@ $ManagedPattern = "(?ms)" +
     ".*?" +
     [regex]::Escape($EndMarker)
 
-if ([regex]::IsMatch($ExistingProfile, $ManagedPattern)) {
-    $NewProfile = [regex]::Replace(
-        $ExistingProfile,
-        $ManagedPattern,
-        [System.Text.RegularExpressions.MatchEvaluator]{ param($m) $LoaderBlock }
-    )
+# Remove every previously managed CXH loader block first.
+# Re-running the installer therefore cannot create duplicate loaders.
+$CleanProfile = [regex]::Replace(
+    $ExistingProfile,
+    $ManagedPattern,
+    ""
+)
 
-    $ProfileChanged = ($NewProfile -ne $ExistingProfile)
+# Remove the legacy pre-marker loader used by older CXH releases.
+$LegacyPattern = "(?ms)^\s*\`$CodexProviderManager\s*=\s*Join-Path.*?^\s*else\s*\{.*?^\s*\}\s*"
+$CleanProfile = [regex]::Replace(
+    $CleanProfile,
+    $LegacyPattern,
+    ""
+)
+
+$prefix = $CleanProfile.TrimEnd()
+
+if ([string]::IsNullOrWhiteSpace($prefix)) {
+    $NewProfile = $LoaderBlock + [Environment]::NewLine
 }
 else {
-    $prefix = $ExistingProfile.TrimEnd()
-
-    if ([string]::IsNullOrWhiteSpace($prefix)) {
-        $NewProfile = $LoaderBlock + [Environment]::NewLine
-    }
-    else {
-        $NewProfile = $prefix +
-            [Environment]::NewLine +
-            [Environment]::NewLine +
-            $LoaderBlock +
-            [Environment]::NewLine
-    }
-
-    $ProfileChanged = $true
+    $NewProfile = $prefix +
+        [Environment]::NewLine +
+        [Environment]::NewLine +
+        $LoaderBlock +
+        [Environment]::NewLine
 }
+
+$ProfileChanged = ($NewProfile -ne $ExistingProfile)
 
 if ($ProfileChanged) {
     if ((Test-Path -LiteralPath $ProfilePath) -and (Get-Item -LiteralPath $ProfilePath).Length -gt 0) {
